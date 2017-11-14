@@ -51,7 +51,7 @@ A p2 20
 M p1 10  <— a partir de agora qualquer alocação de memória deve dar problema
           — imprimir mensagem do tipo: “não tem mais memória”
 
-A partir de agora diversos Acessos podem ser feitos e podem gerar page faults
+          - A partir de agora diversos Acessos podem ser feitos e podem gerar page faults
 
 
 
