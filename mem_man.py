@@ -43,7 +43,19 @@ class Manager(object):
     def get_lru_proc(self):
         return self.processes[0]
 
+    def get_random_proc(self):
+        return self.processes[random.randint(0, len(self.processes))]
 
+    def find_free_memory(self):
+        pass
+
+    def allocate(self, proc_name: str, proc_size: int):
+        pages_to_allocate = proc_size // self.page_size
+        # find free blocks
+        # write proc name on the appropriate blocks
+        pass
+
+    
 def index_ifpossible(line: str, char: str):
     try:
         return line.index(char)
@@ -55,7 +67,8 @@ def read_file(file_path: str) -> List[str]:
     with open(file_path) as setup_file:
         return list(setup_file)
 
-testfile = [x[:index_ifpossible(x, '<')].strip() for x in read_file("input.txt") if x[0] not in {' ', '\n'}]
+testfile = [x[:index_ifpossible(x, '<')].strip()
+            for x in read_file("input.txt") if x[0] not in {' ', '\n'}]
 print(testfile)
 
 mode = testfile[0]
