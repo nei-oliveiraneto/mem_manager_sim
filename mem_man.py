@@ -26,16 +26,17 @@ Entregar código e documentação, conforme formato fornecido.
 
 import random
 from collections import deque
-from typing import List
+from typing import List, Dict, Callable
 
 
 class Manager(object):
     def __init__(self, algorithm: str, page_size: int, memory_size: int, swap_size: int):
         self.algorithm = algorithm
         self.page_size = page_size
-        self.memory = [['' for _ in range(page_size)] for _ in range(memory_size)]
-        self.swap = [['' for _ in range(page_size)] for _ in range(swap_size)]
+        self.memory = Memory(page_size, memory_size)
+        self.swap = Memory(page_size, swap_size)
         self.processes = deque()
+        self.operation: Dict[Callable] = {'C' : self.allocate}
 
     def use_process(self, process):
         self.processes.append(self.processes.pop(self.processes.index(process)))
@@ -46,16 +47,44 @@ class Manager(object):
     def get_random_proc(self):
         return self.processes[random.randint(0, len(self.processes))]
 
-    def find_free_memory(self):
-        pass
-
     def allocate(self, proc_name: str, proc_size: int):
         pages_to_allocate = proc_size // self.page_size
         # find free blocks
         # write proc name on the appropriate blocks
         pass
 
-    
+    def process_orders(self, instructions_list: list):
+        for instruct in instructions_list:
+            instruct_type, proc_name, proc_size = instruct
+
+
+class Memory(object):
+    def __init__(self, page_size: int, number_of_bytes: int):
+        self.page_size = page_size
+        self.number_of_bytes = number_of_bytes
+        self.physical = [['' for _ in range(page_size)] for _ in range(number_of_bytes)]
+        self.used_pages: List[bool] = [False for _ in range(number_of_bytes // page_size)]
+
+    def find_free_memory(self):
+        pass
+
+
+class Page(object):
+    def __init__(self, size: int):
+        self.size = size
+
+def sublist_finder(mylist: list, pattern: list):
+    """
+    Thanks, Python's short-circuit evaluation.
+    Pretty sure this could be made into a list comp, though.
+    """
+    matches = []
+    for i in range(len(mylist)):
+        if mylist[i] == pattern[0] and mylist[i:i+len(pattern)] == pattern:
+            matches.append(i)
+    return matches if len(matches) > 0 else None
+
+
 def index_ifpossible(line: str, char: str):
     try:
         return line.index(char)
