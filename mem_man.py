@@ -30,7 +30,7 @@ from typing import List, Dict, Callable, Deque
 
 
 class Manager(object):
-    def __init__(self, algorithm: str, page_size: int, memory_size: int, swap_size: int) -> None:
+    def __init__(self, algorithm: str, page_size: int, memory_size: int, swap_size: int):
         self.algorithm = algorithm
         self.page_size = page_size
         self.memory = Memory(page_size, memory_size)
@@ -47,21 +47,21 @@ class Manager(object):
     def get_random_proc(self):
         return self.processes[random.randint(0, len(self.processes))]
 
-    def allocate(self, proc_name: str, proc_size: int):
-        pages_to_allocate = proc_size // self.page_size + (proc_size % self.page_size != 0)
+    def allocate(self, proc_name: str, proc_size: int) -> None:
+        extra_bytes = proc_size % self.page_size
+        
+        pages_to_allocate = proc_size // self.page_size + (extra_bytes != 0)
         free_pages = self.memory.find_free_memory()
 
-        if len(free_pages) >= pages_to_allocate:
-            # write process name onto the first pages_to_allocate pages
-            # (careful with the remaining empty space on the last page)
-        else:
+        if len(free_pages) < pages_to_allocate:
             print("Not enough memory. Swapping...")
             # do the swap
-            # write process name on the first proc_size freed pages
-            # (careful with the remaining empty space on the last page)
+        
+        # write process name onto the first pages_to_allocate pages
+        # (careful with the remaining empty space on the last page)
         pass
 
-    def process_orders(self, instructions_list: List[List[str]]):
+    def process_orders(self, instructions_list: List[List[str]]) -> None:
         for instruct in instructions_list:
             instruct_type, proc_name, proc_size = instruct
             self.operation[instruct_type](proc_name, proc_size)
