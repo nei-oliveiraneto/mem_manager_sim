@@ -49,9 +49,16 @@ class Manager(object):
 
     def allocate(self, proc_name: str, proc_size: int):
         pages_to_allocate = proc_size // self.page_size + (proc_size % self.page_size != 0)
+        free_pages = self.memory.find_free_memory()
 
-        # find free blocks
-        # write proc name on the appropriate blocks
+        if len(free_pages) >= pages_to_allocate:
+            # write process name onto the first pages_to_allocate pages
+            # (careful with the remaining empty space on the last page)
+        else:
+            print("Not enough memory. Swapping...")
+            # do the swap
+            # write process name on the first proc_size freed pages
+            # (careful with the remaining empty space on the last page)
         pass
 
     def process_orders(self, instructions_list: List[List[str]]):
@@ -63,13 +70,13 @@ class Manager(object):
 
 class Memory(object):
     def __init__(self, page_size: int, number_of_bytes: int):
+        self.physical: List[List[str]] = [['' for _ in range(page_size)] for _ in range(number_of_bytes)]
+        self.used_pages: List[bool] = [False for _ in range(number_of_bytes // page_size)]
         self.page_size = page_size
         self.number_of_bytes = number_of_bytes
-        self.physical = [['' for _ in range(page_size)] for _ in range(number_of_bytes)]
-        self.used_pages: List[bool] = [False for _ in range(number_of_bytes // page_size)]
 
-    def find_free_memory(self):
-        pass
+    def find_free_memory(self) -> List[int]:
+        return [i for i, not_used in enumerate(self.used_pages) if not_used]
 
 
 class Page(object):
