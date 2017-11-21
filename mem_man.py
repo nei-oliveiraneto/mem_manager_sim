@@ -26,17 +26,17 @@ Entregar código e documentação, conforme formato fornecido.
 
 import random
 from collections import deque
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Deque
 
 
 class Manager(object):
-    def __init__(self, algorithm: str, page_size: int, memory_size: int, swap_size: int):
+    def __init__(self, algorithm: str, page_size: int, memory_size: int, swap_size: int) -> None:
         self.algorithm = algorithm
         self.page_size = page_size
         self.memory = Memory(page_size, memory_size)
         self.swap = Memory(page_size, swap_size)
-        self.processes = deque()
-        self.operation: Dict[Callable] = {'C' : self.allocate}
+        self.processes: Deque[str] = deque()
+        self.operation: Dict[str, Callable[[str, int], None]] = {'C' : self.allocate}
 
     def use_process(self, process):
         self.processes.append(self.processes.pop(self.processes.index(process)))
@@ -48,14 +48,17 @@ class Manager(object):
         return self.processes[random.randint(0, len(self.processes))]
 
     def allocate(self, proc_name: str, proc_size: int):
-        pages_to_allocate = proc_size // self.page_size
+        pages_to_allocate = proc_size // self.page_size + (proc_size % self.page_size != 0)
+
         # find free blocks
         # write proc name on the appropriate blocks
         pass
 
-    def process_orders(self, instructions_list: list):
+    def process_orders(self, instructions_list: List[List[str]]):
         for instruct in instructions_list:
             instruct_type, proc_name, proc_size = instruct
+            self.operation[instruct_type](proc_name, proc_size)
+            break
 
 
 class Memory(object):
@@ -106,5 +109,5 @@ page_size_in_bytes = int(testfile[2])
 physical_memory_size_in_pages = int(testfile[3]) // page_size_in_bytes
 swap_size_in_pages = int(testfile[4]) // page_size_in_bytes
 
-instructions = [x.split(' ') for x in testfile[5:]]
+instructions: List[List[str]] = [x.split(' ') for x in testfile[5:]]
 
