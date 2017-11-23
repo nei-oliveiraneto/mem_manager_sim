@@ -26,7 +26,8 @@ Entregar código e documentação, conforme formato fornecido.
 
 import random
 from collections import deque
-from typing import List, Dict, Callable, Deque, Set
+from itertools import chain
+from typing import List, Dict, Callable, Deque, Set, Tuple
 
 
 class Manager(object):
@@ -77,7 +78,7 @@ class Manager(object):
 
         pages_to_use = free_pages[:whole_pages_to_allocate + 1]
         # write process name onto the first pages_to_allocate pages
-        self.memory.assign(pages_to_use, extra_bytes, proc_name)
+        self.memory.alloc(pages_to_use, extra_bytes, proc_name)
 
     def access(self, proc_name: str, byte_to_access: int) -> None:
         if proc_name in self.memory:
@@ -87,9 +88,10 @@ class Manager(object):
 
 
     def process_orders(self, instructions_list: List[List[str]]) -> None:
-        for instruct in instructions_list[:3]:
+        for instruct in instructions_list[:5]:
             instruct_type, proc_name, proc_size = instruct
             self.operation[instruct_type](proc_name, int(proc_size))
+            print(self.memory.physical)
 
 
 class Memory(object):
@@ -97,6 +99,7 @@ class Memory(object):
         self.physical: List[List[str]] = [['' for _ in range(page_size)] for _ in range(pages_in_memory)]
         self.used_pages: List[bool] = [False for _ in range(pages_in_memory)]
         self.processes: Set[str] = set()
+        self.virtual_indices: Dict[Tuple[str, int], Tuple[int, int]] = {}
         self.page_size = page_size
         self.number_of_bytes = pages_in_memory * self.page_size
 
@@ -107,13 +110,37 @@ class Memory(object):
         for i in page_indices:
             self.used_pages[i] = not self.used_pages[i]
 
-    def assign(self, page_indices: List[int], extra: int, value_to_assign: str):
+    def update_virtual_indices(self, proc_name: str, page_indices: List[int],
+                               extra_bytes: int, last_virtual_index: int=0):
+        virtual_addresses = list(range(last_virtual_index, (len(page_indices) - 1) * self.page_size))
+        physical_addresses = list(range(self.page_size)) * (len(page_indices) - 1)
+        page_num = chain(*[[x] * self.page_size for x in page_indices[:-1]])
+
+        self.virtual_indices.update(
+            {(proc_name, virtual_i) : (page_index, physical_index)
+             for virtual_i, physical_index, page_index in zip(virtual_addresses, physical_addresses, page_num)}
+        )
+
+        last_virtual_index += (len(page_indices) - 1) * self.page_size
+
+        if extra_bytes:
+            self.virtual_indices.update(
+                {(proc_name, virtual_i) : (page_indices[-1], physical_index)
+                 for virtual_i, physical_index in zip(
+                    range(last_virtual_index, last_virtual_index + extra_bytes),
+                    range(self.page_size))}
+            )
+
+    def alloc(self, page_indices: List[int], amount_of_extra_bytes: int, value_to_assign: str):
         self.processes.add(value_to_assign)
-        self.toogle_in_bitmap(page_indices if extra else page_indices[:-1])
+        self.toogle_in_bitmap(page_indices if amount_of_extra_bytes else page_indices[:-1])
+        self.update_virtual_indices(value_to_assign, page_indices, amount_of_extra_bytes)
+        if page_indices[-1] == len(self.used_pages) - 1:
+            page_indices.append(None)
 
         for i in page_indices[:-1]:
             self.physical[i] = [value_to_assign] * self.page_size
-        for i in range(extra):
+        for i in range(amount_of_extra_bytes):
             self.physical[page_indices[-1]][i] = value_to_assign
 
     def __contains__(self, proc: str) -> bool:
@@ -160,6 +187,7 @@ instructions: List[List[str]] = [x.split(' ') for x in testfile[5:]]
 
 a = Manager(algorithm_used, page_size_in_bytes, physical_memory_size_in_pages, swap_size_in_pages)
 
-# a.process_orders([['C', 'p1', '18']])
-a.process_orders(instructions)
-print(a.memory.physical)
+# a.process_orders([['C', 'p1', '16']])
+a.process_orders(instructions[:3])
+
+print(a.memory.virtual_indices, sep='\n')
