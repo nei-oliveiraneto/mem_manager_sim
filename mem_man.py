@@ -26,18 +26,26 @@ Entregar código e documentação, conforme formato fornecido.
 
 import random
 from collections import deque
-from typing import List, Dict, Callable, Deque
+from typing import List, Dict, Callable, Deque, Set
 
 
 class Manager(object):
     def __init__(self, algorithm: str, page_size: int, memory_size: int, swap_size: int) -> None:
+        """
+
+        :param algorithm:
+        :param page_size: in bytes
+        :param memory_size: in pages
+        :param swap_size:
+        """
         self.scheduling_algorithm = algorithm
         self.page_size = page_size
         self.memory = Memory(page_size, memory_size)
         self._swap = Memory(page_size, swap_size)
         self.processes: Deque[str] = deque()
         self.algorithm: Dict[str, Callable[..., str]] = {'lru': self.get_lru_proc}
-        self.operation: Dict[str, Callable[[str, int], None]] = {'C' : self.allocate}
+        self.operation: Dict[str, Callable[[str, int], None]] = {
+            'C' : self.allocate, 'A' : self.access}
 
     def use_process(self, process: str):
         self.processes.append(self.processes.pop(self.processes.index(process)))
@@ -57,7 +65,7 @@ class Manager(object):
         return []
 
     def allocate(self, proc_name: str, proc_size: int) -> None:
-        self.use_process(proc_name)
+        self.processes.append(proc_name)
 
         extra_bytes = proc_size % self.page_size
         whole_pages_to_allocate = proc_size // self.page_size
@@ -66,32 +74,50 @@ class Manager(object):
         if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
             print("Not enough memory. Swapping...")
             # do the swap
+
+        pages_to_use = free_pages[:whole_pages_to_allocate + 1]
         # write process name onto the first pages_to_allocate pages
-        self.memory.assign(free_pages[:whole_pages_to_allocate], extra_bytes, proc_name)
+        self.memory.assign(pages_to_use, extra_bytes, proc_name)
+
+    def access(self, proc_name: str, byte_to_access: int) -> None:
+        if proc_name in self.memory:
+            self.use_process(proc_name)
+        elif proc_name in self._swap:
+            print("{}'s page {} was not found in memory. PAGE FAULT!")
 
 
     def process_orders(self, instructions_list: List[List[str]]) -> None:
-        for instruct in instructions_list:
+        for instruct in instructions_list[:3]:
             instruct_type, proc_name, proc_size = instruct
             self.operation[instruct_type](proc_name, int(proc_size))
-            break
 
 
 class Memory(object):
-    def __init__(self, page_size: int, number_of_bytes: int):
-        self.physical: List[List[str]] = [['' for _ in range(page_size)] for _ in range(number_of_bytes)]
-        self.used_pages: List[bool] = [False for _ in range(number_of_bytes // page_size)]
+    def __init__(self, page_size: int, pages_in_memory: int):
+        self.physical: List[List[str]] = [['' for _ in range(page_size)] for _ in range(pages_in_memory)]
+        self.used_pages: List[bool] = [False for _ in range(pages_in_memory)]
+        self.processes: Set[str] = set()
         self.page_size = page_size
-        self.number_of_bytes = number_of_bytes
+        self.number_of_bytes = pages_in_memory * self.page_size
 
     def find_free_memory(self) -> List[int]:
-        return [i for i, not_used in enumerate(self.used_pages) if not_used]
+        return [i for i, used in enumerate(self.used_pages) if not used]
+
+    def toogle_in_bitmap(self, page_indices: List[int]):
+        for i in page_indices:
+            self.used_pages[i] = not self.used_pages[i]
 
     def assign(self, page_indices: List[int], extra: int, value_to_assign: str):
+        self.processes.add(value_to_assign)
+        self.toogle_in_bitmap(page_indices if extra else page_indices[:-1])
+
         for i in page_indices[:-1]:
             self.physical[i] = [value_to_assign] * self.page_size
         for i in range(extra):
             self.physical[page_indices[-1]][i] = value_to_assign
+
+    def __contains__(self, proc: str) -> bool:
+        return proc in self.processes
 
 
 class Page(object):
@@ -123,7 +149,6 @@ def read_file(file_path: str) -> List[str]:
 
 testfile = [x[:index_ifpossible(x, '<')].strip()
             for x in read_file("input.txt") if x[0] not in {' ', '\n'}]
-print(testfile)
 
 mode = testfile[0]
 algorithm_used = testfile[1]
@@ -133,3 +158,8 @@ swap_size_in_pages = int(testfile[4]) // page_size_in_bytes
 
 instructions: List[List[str]] = [x.split(' ') for x in testfile[5:]]
 
+a = Manager(algorithm_used, page_size_in_bytes, physical_memory_size_in_pages, swap_size_in_pages)
+
+# a.process_orders([['C', 'p1', '18']])
+a.process_orders(instructions)
+print(a.memory.physical)
