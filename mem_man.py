@@ -27,7 +27,7 @@ Entregar código e documentação, conforme formato fornecido.
 import random
 from collections import deque
 from itertools import chain
-from typing import List, Dict, Callable, Deque, Set, Tuple
+from typing import List, Dict, Callable, Deque, Tuple
 
 
 class Manager(object):
@@ -46,10 +46,12 @@ class Manager(object):
         self.processes: Deque[str] = deque()
         self.algorithm: Dict[str, Callable[..., str]] = {'lru': self.get_lru_proc}
         self.operation: Dict[str, Callable[[str, int], None]] = {
-            'C' : self.allocate, 'A' : self.access}
+            'C' : self.first_alloc, 'A' : self.access, 'M' : self.malloc}
 
     def use_process(self, process: str):
-        self.processes.append(self.processes.pop(self.processes.index(process)))
+        index = self.processes.index(process)
+        self.processes.append(self.processes[index])
+        del self.processes[index]
 
     def get_lru_proc(self):
         return self.processes[0]
@@ -65,7 +67,10 @@ class Manager(object):
         # return indices of freed memory
         return []
 
-    def allocate(self, proc_name: str, proc_size: int) -> None:
+    def alloc(self, proc_name: str, proc_size: int):
+        pass
+
+    def first_alloc(self, proc_name: str, proc_size: int) -> None:
         self.processes.append(proc_name)
 
         extra_bytes = proc_size % self.page_size
@@ -81,14 +86,42 @@ class Manager(object):
         self.memory.alloc(pages_to_use, extra_bytes, proc_name)
 
     def access(self, proc_name: str, byte_to_access: int) -> None:
-        if proc_name in self.memory:
+        if (proc_name, byte_to_access) in self.memory:
             self.use_process(proc_name)
-        elif proc_name in self._swap:
+            print("Accessed {}'s byte number {}. Physical address {}.".format(
+                proc_name, byte_to_access, self.memory.get_physical_address((proc_name, byte_to_access))))
+        elif (proc_name, byte_to_access) in self._swap:
             print("{}'s page {} was not found in memory. PAGE FAULT!")
+        else:
+            print("Access error: {}:({}:{}]".format(
+                proc_name, self.memory.get_last_virtual_index(proc_name), byte_to_access))
+
+    def malloc(self, proc_name: str, new_bytes: int):
+        self.use_process(proc_name)  # what if proc is not in memory?
+
+        # snippet I could turn into a method
+        extra_bytes = new_bytes % self.page_size
+        whole_pages_to_allocate = new_bytes // self.page_size
+        free_pages = self.memory.find_free_memory()
+
+        if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
+            print("Not enough memory. Swapping...")
+            # do the swap
+
+        pages_to_use = free_pages[:whole_pages_to_allocate + 1]
+        # close snippet
+
+        last_byte = self.memory.get_last_virtual_index(proc_name)
+        last_page = 0 if last_byte % self.page_size else self.memory.get_physical_address((proc_name, last_byte - 1))[0]
+
+        self.memory.malloc(
+            pages_to_use, proc_name, last_page=last_page,
+            free_indices=self.memory.find_free_indices(last_page)
+        )
 
 
     def process_orders(self, instructions_list: List[List[str]]) -> None:
-        for instruct in instructions_list[:5]:
+        for instruct in instructions_list:
             instruct_type, proc_name, proc_size = instruct
             self.operation[instruct_type](proc_name, int(proc_size))
             print(self.memory.physical)
@@ -96,15 +129,27 @@ class Manager(object):
 
 class Memory(object):
     def __init__(self, page_size: int, pages_in_memory: int):
-        self.physical: List[List[str]] = [['' for _ in range(page_size)] for _ in range(pages_in_memory)]
+        self.physical: List[List[str]] = [['  ' for _ in range(page_size)] for _ in range(pages_in_memory)]
         self.used_pages: List[bool] = [False for _ in range(pages_in_memory)]
-        self.processes: Set[str] = set()
+        self.last_virtual_index_by_proc: Dict[str, int] = {}
         self.virtual_indices: Dict[Tuple[str, int], Tuple[int, int]] = {}
         self.page_size = page_size
         self.number_of_bytes = pages_in_memory * self.page_size
 
+    def get_last_virtual_index(self, proc_name: str) -> int:
+        return self.last_virtual_index_by_proc[proc_name]
+
+    def get_physical_address(self, proc_vbyte: Tuple[str, int]) -> Tuple[int, int]:
+        return self.virtual_indices[proc_vbyte]
+
+    def find_free_indices(self, page_index: int):
+        return [i for i, byte in enumerate(self.physical[page_index]) if byte == '  ']
+
     def find_free_memory(self) -> List[int]:
         return [i for i, used in enumerate(self.used_pages) if not used]
+
+    def update_last_virtual_index(self, proc_name: str, last_byte: int):
+        self.last_virtual_index_by_proc.update({proc_name : last_byte})
 
     def toogle_in_bitmap(self, page_indices: List[int]):
         for i in page_indices:
@@ -132,9 +177,13 @@ class Memory(object):
             )
 
     def alloc(self, page_indices: List[int], amount_of_extra_bytes: int, value_to_assign: str):
-        self.processes.add(value_to_assign)
+        self.update_last_virtual_index(
+            value_to_assign, (len(page_indices) - 1) * self.page_size + amount_of_extra_bytes)
         self.toogle_in_bitmap(page_indices if amount_of_extra_bytes else page_indices[:-1])
         self.update_virtual_indices(value_to_assign, page_indices, amount_of_extra_bytes)
+
+        # Add another element to page_indices if the last free page is the last physical page
+        # So I can always take one page off of the end.
         if page_indices[-1] == len(self.used_pages) - 1:
             page_indices.append(None)
 
@@ -143,9 +192,18 @@ class Memory(object):
         for i in range(amount_of_extra_bytes):
             self.physical[page_indices[-1]][i] = value_to_assign
 
-    def __contains__(self, proc: str) -> bool:
-        return proc in self.processes
+    def malloc(self, pages: List[int], proc_name: str, last_page: int=0, free_indices: List[int]=None):
+        #self.update_last_virtual_index(proc_name)
+        pass
 
+    def __contains__(self, proc_vbyte: Tuple[str, int]) -> bool:
+        return proc_vbyte in self.virtual_indices
+
+    def __str__(self) -> str:
+        s = ''
+        for i in self.physical:
+            s += str(i)+'\n'
+        return s
 
 class Page(object):
     def __init__(self, size: int):
@@ -188,6 +246,6 @@ instructions: List[List[str]] = [x.split(' ') for x in testfile[5:]]
 a = Manager(algorithm_used, page_size_in_bytes, physical_memory_size_in_pages, swap_size_in_pages)
 
 # a.process_orders([['C', 'p1', '16']])
-a.process_orders(instructions[:3])
-
-print(a.memory.virtual_indices, sep='\n')
+a.process_orders(instructions[:9])
+# a.process_orders([['C', 'p4', '8']])
+# print(a.memory.virtual_indices, sep='\n')
