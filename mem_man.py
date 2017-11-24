@@ -59,9 +59,11 @@ class Manager(object):
     def get_random_proc(self):
         return self.processes[random.randint(0, len(self.processes))]
 
-    def swap(self) -> List[int]:
-        chosen_proc_to_swap: str = self.algorithm[self.scheduling_algorithm]()
+    def swap(self, proc_name: str) -> List[int]:
+
         # find all indices of proc pages in memory
+        #for i in range(self.memory.get_last_virtual_index(proc_name)):
+
         # put them in storage
         # free memory
         # return indices of freed memory
@@ -79,7 +81,8 @@ class Manager(object):
 
         if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
             print("Not enough memory. Swapping...")
-            # do the swap
+            chosen_proc_to_swap: str = self.algorithm[self.scheduling_algorithm]()
+            free_pages = self.swap(chosen_proc_to_swap)
 
         pages_to_use = free_pages[:whole_pages_to_allocate + 1]
         # write process name onto the first pages_to_allocate pages
@@ -99,32 +102,38 @@ class Manager(object):
     def malloc(self, proc_name: str, new_bytes: int):
         self.use_process(proc_name)  # what if proc is not in memory?
 
-        # snippet I could turn into a method
-        extra_bytes = new_bytes % self.page_size
-        whole_pages_to_allocate = new_bytes // self.page_size
-        free_pages = self.memory.find_free_memory()
-
-        if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
-            print("Not enough memory. Swapping...")
-            # do the swap
-
-        pages_to_use = free_pages[:whole_pages_to_allocate + 1]
-        # close snippet
-
         last_byte = self.memory.get_last_virtual_index(proc_name)
-        last_page = 0 if last_byte % self.page_size else self.memory.get_physical_address((proc_name, last_byte - 1))[0]
+        hanging_bytes = last_byte % self.page_size
+        last_page = -1 if not hanging_bytes else self.memory.get_physical_address((proc_name, last_byte - 1))[0]
+        if new_bytes < self.page_size and new_bytes + hanging_bytes < self.page_size:
+            self.memory.malloc([], proc_name, last_page,
+                self.memory.find_free_indices(last_page),
+                up_to_vbyte=last_byte + new_bytes
+            )
+        else:
+            # snippet I could turn into a method
+            extra_bytes = new_bytes % self.page_size
+            whole_pages_to_allocate = new_bytes // self.page_size
+            free_pages = self.memory.find_free_memory()
 
-        self.memory.malloc(
-            pages_to_use, proc_name, last_page=last_page,
-            free_indices=self.memory.find_free_indices(last_page)
-        )
 
+            if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
+                print("Not enough memory. Swapping...")
+                # do the swap
+
+            pages_to_use = free_pages[:whole_pages_to_allocate + 1]
+            # close snippet
+
+            self.memory.malloc(pages_to_use, proc_name, last_page,
+                self.memory.find_free_indices(last_page),
+                up_to_vbyte=last_byte + new_bytes
+            )
 
     def process_orders(self, instructions_list: List[List[str]]) -> None:
         for instruct in instructions_list:
             instruct_type, proc_name, proc_size = instruct
+            print(instruct, self.memory.physical)
             self.operation[instruct_type](proc_name, int(proc_size))
-            print(self.memory.physical)
 
 
 class Memory(object):
@@ -157,7 +166,7 @@ class Memory(object):
 
     def update_virtual_indices(self, proc_name: str, page_indices: List[int],
                                extra_bytes: int, last_virtual_index: int=0):
-        virtual_addresses = list(range(last_virtual_index, (len(page_indices) - 1) * self.page_size))
+        virtual_addresses = range(last_virtual_index, (len(page_indices) - 1) * self.page_size + last_virtual_index)
         physical_addresses = list(range(self.page_size)) * (len(page_indices) - 1)
         page_num = chain(*[[x] * self.page_size for x in page_indices[:-1]])
 
@@ -192,8 +201,46 @@ class Memory(object):
         for i in range(amount_of_extra_bytes):
             self.physical[page_indices[-1]][i] = value_to_assign
 
-    def malloc(self, pages: List[int], proc_name: str, last_page: int=0, free_indices: List[int]=None):
-        #self.update_last_virtual_index(proc_name)
+    def malloc(self, pages: List[int], proc_name: str, last_page: int, free_indices: List[int], up_to_vbyte: int):
+        last_vindex = self.get_last_virtual_index(proc_name)
+
+        if last_page == -1 and len(free_indices) == 0:
+            # When no incomplete page is provided, just
+
+            if pages[-1] == len(self.used_pages) - 1:
+                pages.append(None)
+            for i in pages[:-1]:
+                self.physical[i] = [proc_name] * self.page_size
+            for i in range(up_to_vbyte):
+                self.physical[pages[-1]][i] = proc_name
+
+        elif up_to_vbyte - last_vindex < len(free_indices):
+            # When allocation fits inside remaining bytes on the incomplete page
+            for i in free_indices[:up_to_vbyte - last_vindex]:
+                self.physical[last_page][i] = proc_name
+
+            self.update_virtual_indices(
+                proc_name, [last_page], len(free_indices), last_virtual_index=last_vindex)
+        else:
+            for i in free_indices:
+                self.physical[last_page][i] = proc_name
+
+            self.update_virtual_indices(
+                proc_name, [last_page], len(free_indices), last_virtual_index=last_vindex)
+
+            if pages[-1] == len(self.used_pages) - 1:
+                pages.append(None)
+            for i in pages[:-1]:
+                self.physical[i] = [proc_name] * self.page_size
+            for i in range(up_to_vbyte % self.page_size):
+                print(i)
+                self.physical[pages[-1]][i] = proc_name
+
+            self.update_virtual_indices(
+                proc_name, pages, up_to_vbyte % self.page_size, last_virtual_index=last_vindex)
+            self.toogle_in_bitmap(pages if up_to_vbyte % self.page_size else pages[:-1])
+
+        self.update_last_virtual_index(proc_name, up_to_vbyte)
         pass
 
     def __contains__(self, proc_vbyte: Tuple[str, int]) -> bool:
@@ -246,6 +293,7 @@ instructions: List[List[str]] = [x.split(' ') for x in testfile[5:]]
 a = Manager(algorithm_used, page_size_in_bytes, physical_memory_size_in_pages, swap_size_in_pages)
 
 # a.process_orders([['C', 'p1', '16']])
-a.process_orders(instructions[:9])
-# a.process_orders([['C', 'p4', '8']])
-# print(a.memory.virtual_indices, sep='\n')
+a.process_orders(instructions[:11])
+# a.process_orders([['M', 'p1', '8']])
+print(a.memory.physical)
+print(a.memory.virtual_indices, sep='\n')
