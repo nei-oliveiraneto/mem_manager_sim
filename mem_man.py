@@ -62,8 +62,8 @@ class Manager(object):
     def swap(self, proc_name: str) -> List[int]:
 
         # find all indices of proc pages in memory
-        #for i in range(self.memory.get_last_virtual_index(proc_name)):
-
+        physical_indices = self.memory.get_all_phys_indices(proc_name)
+        print(physical_indices)
         # put them in storage
         # free memory
         # return indices of freed memory
@@ -119,7 +119,8 @@ class Manager(object):
 
             if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
                 print("Not enough memory. Swapping...")
-                # do the swap
+                chosen_proc_to_swap: str = self.algorithm[self.scheduling_algorithm]()
+                free_pages = self.swap(chosen_proc_to_swap)
 
             pages_to_use = free_pages[:whole_pages_to_allocate + 1]
             # close snippet
@@ -156,6 +157,9 @@ class Memory(object):
 
     def find_free_memory(self) -> List[int]:
         return [i for i, used in enumerate(self.used_pages) if not used]
+
+    def get_all_phys_indices(self, proc_name: str) -> List[Tuple[int, int]]:
+        return [self.virtual_indices[(proc_name, i)] for i in range(self.get_last_virtual_index(proc_name))]
 
     def update_last_virtual_index(self, proc_name: str, last_byte: int):
         self.last_virtual_index_by_proc.update({proc_name : last_byte})
