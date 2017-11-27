@@ -60,24 +60,35 @@ class Manager(object):
         return self.processes[random.randint(0, len(self.processes))]
 
     def swap(self, proc_name: str) -> List[int]:
-
+        """Swap proc's earliest page from memory to storage."""
         # find all indices of proc pages in memory
-        physical_indices = self.memory.get_all_phys_indices(proc_name)
-        print(physical_indices)
+        page, indices = self.memory.get_allocated_indices_from_earliest_page(proc_name)
+        free_pages = self._swap.find_free_pages()
+        if len(free_pages) > 0:
+            self._swap.physical[free_pages[0]] = [proc_name] * len(indices)
+            self.memory.physical[page] = ['  '] * 8 + [proc_name] * (8 - len(indices))
+        else:
+            print("Out of swap storage.")
         # put them in storage
         # free memory
         # return indices of freed memory
-        return []
+        return page
 
     def alloc(self, proc_name: str, proc_size: int):
         pass
 
+    def get_alloc_requirements(self, alloc_size: int) -> Tuple[int, int]:
+        """
+        :param alloc_size: allocation size in bytes from zero.
+        :return: Tuple[bytes to allocate in the next page, whole pages to allocate]
+        """
+        return (alloc_size % self.page_size, alloc_size // self.page_size)
+
     def first_alloc(self, proc_name: str, proc_size: int) -> None:
         self.processes.append(proc_name)
 
-        extra_bytes = proc_size % self.page_size
-        whole_pages_to_allocate = proc_size // self.page_size
-        free_pages = self.memory.find_free_memory()
+        extra_bytes, whole_pages_to_allocate = self.get_alloc_requirements(proc_size)
+        free_pages = self.memory.find_free_pages()
 
         if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
             print("Not enough memory. Swapping...")
@@ -112,9 +123,8 @@ class Manager(object):
             )
         else:
             # snippet I could turn into a method
-            extra_bytes = new_bytes % self.page_size
-            whole_pages_to_allocate = new_bytes // self.page_size
-            free_pages = self.memory.find_free_memory()
+            extra_bytes, whole_pages_to_allocate = self.get_alloc_requirements(new_bytes)
+            free_pages = self.memory.find_free_pages()
 
 
             if len(free_pages) < whole_pages_to_allocate + (extra_bytes != 0):
@@ -155,11 +165,20 @@ class Memory(object):
     def find_free_indices(self, page_index: int):
         return [i for i, byte in enumerate(self.physical[page_index]) if byte == '  ']
 
-    def find_free_memory(self) -> List[int]:
+    def find_free_pages(self) -> List[int]:
         return [i for i, used in enumerate(self.used_pages) if not used]
 
     def get_all_phys_indices(self, proc_name: str) -> List[Tuple[int, int]]:
         return [self.virtual_indices[(proc_name, i)] for i in range(self.get_last_virtual_index(proc_name))]
+
+    def get_allocated_indices_from_earliest_page(self, proc_name: str) -> Tuple[int, List[int]]:
+        physical_indices = self.get_all_phys_indices(proc_name)
+        earliest_page_index = physical_indices[0][0]
+        i = 0
+        indices_used_by_process_inside_page = []
+        while physical_indices[i] == earliest_page_index:
+            indices_used_by_process_inside_page.append(physical_indices[i][1])
+        return (earliest_page_index, indices_used_by_process_inside_page)
 
     def update_last_virtual_index(self, proc_name: str, last_byte: int):
         self.last_virtual_index_by_proc.update({proc_name : last_byte})
@@ -170,7 +189,8 @@ class Memory(object):
 
     def update_virtual_indices(self, proc_name: str, page_indices: List[int],
                                extra_bytes: int, last_virtual_index: int=0):
-        virtual_addresses = range(last_virtual_index, (len(page_indices) - 1) * self.page_size + last_virtual_index)
+        virtual_addresses = range(
+            last_virtual_index,(len(page_indices) - 1) * self.page_size + last_virtual_index)
         physical_addresses = list(range(self.page_size)) * (len(page_indices) - 1)
         page_num = chain(*[[x] * self.page_size for x in page_indices[:-1]])
 
